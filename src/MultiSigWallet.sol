@@ -45,6 +45,9 @@ contract MultiSigWallet is ReentrancyGuard {
     error MultiSigWallet__InvalidNumberOfConfirmations();
     error MultiSigWallet__InvalidOwnerAddress();
     error MultiSigWallet__OwnerNotUnique();
+    error MultiSigWallet__InsufficientApprovals();
+    error MultiSigWallet__TransactionExecutionFailed();
+    error MultiSigWallet__TransactionNotApproved(uint256 txIndex);
 
     /////////////////////////////////////
     ////////// State Variables //////////
@@ -184,12 +187,17 @@ contract MultiSigWallet is ReentrancyGuard {
     {
         Transaction storage transaction = transactions[_txIndex];
 
-        require(transaction.approvalCount >= requiredApprovals, "Insufficient approvals to execute transaction");
+        if (transaction.approvalCount < requiredApprovals) {
+            revert MultiSigWallet__InsufficientApprovals();
+        }
 
         transaction.executed = true;
 
         (bool success,) = transaction.to.call{value: transaction.value}(transaction.data);
-        require(success, "Transaction execution failed");
+
+        if (!success) {
+            revert MultiSigWallet__TransactionExecutionFailed();
+        }
 
         emit TransactionExecuted(msg.sender, _txIndex);
     }
@@ -199,7 +207,7 @@ contract MultiSigWallet is ReentrancyGuard {
      * @param _txIndex Index of the transaction in the transactions array.
      */
     function revokeApproval(uint256 _txIndex) external onlyOwner transactionExists(_txIndex) notYetExecuted(_txIndex) {
-        require(hasApproved[_txIndex][msg.sender], "Transaction not approved by caller");
+        if (hasApproved[_txIndex][msg.sender] == false) revert MultiSigWallet__TransactionNotApproved(_txIndex);
 
         Transaction storage transaction = transactions[_txIndex];
         transaction.approvalCount -= 1;
